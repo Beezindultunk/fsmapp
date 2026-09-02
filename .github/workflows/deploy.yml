@@ -1,0 +1,23 @@
+name: Napi automatikus telepítés (Firebase)
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kód letöltése
+        uses: actions/checkout@v4
+
+      - name: Node.js beállítása
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Telepítés a Firebase-re
+        run: npx --yes firebase-tools deploy --only firestore:rules,hosting --token "${{ secrets.FIREBASE_TOKEN }}"

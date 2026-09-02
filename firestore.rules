@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+
+  function isOwnerDoc(docId) {
+    return docId.matches('^userdata:[^:]+:.+$')
+        || docId.matches('^leaderboard(-month)?:[^:]+:[^:]+:.+$');
+  }
+  function ownerUidFromDocId(docId) {
+    return docId.split(':')[docId.split(':').size() - 1];
+  }
+  function isOwnDoc(docId) {
+    return !isOwnerDoc(docId) || ownerUidFromDocId(docId) == request.auth.uid;
+  }
+  function isValidShape() {
+    return request.resource.data.keys().hasOnly(['value', 'shared'])
+        && request.resource.data.value is string
+        && request.resource.data.value.size() < 500000
+        && request.resource.data.shared is bool;
+  }
+  // Ezeket a megosztott, "hivatalos" listákat KIZÁRÓLAG a fő admin
+  // módosíthatja közvetlenül — enélkül bárki, aki a felületet megkerülve ír
+  // az adatbázisba, admin-jogot szerezhetne, hamis "jóváhagyott" kérdést
+  // tehetne élesbe, vagy módosíthatná a missziók hivatalos listáját.
+  // (A beküldési sorok — pending-cards, pending-activities — szándékosan
+  // MARADNAK nyitva bárkinek, hiszen bárki küldhet be jóváhagyásra várót.)
+  function isMainAdmin() {
+    return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == 't.toreki@gmail.com';
+  }
+  function isAdminOnlyDoc(docId) {
+    return docId.matches('^admins:.+$')
+        || docId.matches('^missions:.+$')
+        || docId.matches('^custom-cards:.+$');
+  }
+
+  match /databases/{database}/documents {
+    match /kv/{docId} {
+      // Bárki (bejelentkezés nélkül is) olvashat — ranglista, statisztikák stb.
+      allow read: if true;
+
+      // Írás csak bejelentkezve. A saját eredményeidet (userdata, leaderboard)
+      // KIZÁRÓLAG te magad írhatod — senki más nem tudja felülírni őket.
+      // Az admin-védett listákat kizárólag a fő admin írhatja (ld. fent).
+      // A többi megosztott listát (account, email-index, pending-cards,
+      // pending-activities stb.) bármelyik bejelentkezett felhasználó
+      // írhatja, a megfelelő formában.
+      allow create, update: if request.auth != null && isValidShape() && isOwnDoc(docId)
+          && (!isAdminOnlyDoc(docId) || isMainAdmin());
+      allow delete: if request.auth != null && isOwnDoc(docId)
+          && (!isAdminOnlyDoc(docId) || isMainAdmin());
+    }
+  }
+}
